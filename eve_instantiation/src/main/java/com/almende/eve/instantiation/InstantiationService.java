@@ -5,6 +5,7 @@
 package com.almende.eve.instantiation;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -21,6 +22,8 @@ import com.almende.util.TypeUtil;
 import com.almende.util.jackson.JOM;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import static java.lang.management.ManagementFactory.*;
 
 /**
  * The Class InstantiationService.
@@ -75,7 +78,7 @@ public class InstantiationService implements Capability {
 
 	/**
 	 * Gets the my params.
-	 * 
+	 *
 	 * @return the my params
 	 */
 	public ObjectNode getMyParams() {
@@ -84,7 +87,7 @@ public class InstantiationService implements Capability {
 
 	/**
 	 * Sets the my params.
-	 * 
+	 *
 	 * @param myParams
 	 *            the new my params
 	 */
@@ -98,18 +101,54 @@ public class InstantiationService implements Capability {
 	 */
 	@JsonIgnore
 	public void boot() {
-		load();
-		int cnt = 0;
-		for (final String key : entries.keySet()) {
-			Object res = init(key, true);
-			if (res != null) {
-				cnt++;
-			}
-		}
-		LOG.info("Booted " + cnt + " agents");
+        load();
+
+        Set<String> domainAgents = new HashSet<>();
+        domainAgents.add("ask_mgmt");
+        domainAgents.add("restagent");
+
+        for (String key : entries.keySet()) {
+
+            boolean isDomainAgent = key != null && key.length() > 11 && key.endsWith("_groupAgent") && entries.containsKey(key.substring(0, key.length() - 11));
+            if (isDomainAgent) {
+                domainAgents.add(key.substring(0, key.length() - 11));
+                domainAgents.add(key);
+            }
+
+            if ("restagent".equals(key)) {
+                domainAgents.add(key);
+            }
+        }
+
+        int count = 0;
+        for (String key : domainAgents) {
+            Object res = init(key, true);
+        }
+
+        long jvmUpTime = java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime();
+        LOG.info("Booted " + count + " agents (@ " + (jvmUpTime / 1000.0) + "sec)");
+
+        //load agents in a separate thread
+        DeferredBoot db = new DeferredBoot();
+        db.exclude = domainAgents;
+        db.start();
 	}
 
-	/**
+    public synchronized Configurable boot_key(String key, boolean onBoot) {
+
+	    if (!entries.keySet().contains(key)) {
+            System.err.println("no such key: " + key);
+            return null;
+        }
+
+        if (entries.get(key) != null) {
+            return null;
+        }
+
+        return init(key, onBoot);
+    }
+
+    /**
 	 * Exists.
 	 *
 	 * @param wakeKey
@@ -142,7 +181,10 @@ public class InstantiationService implements Capability {
 	 */
 	@JsonIgnore
 	public Configurable init(final String wakeKey, final boolean onBoot) {
-		InstantiationEntry entry = entries.get(wakeKey);
+
+        System.out.println(String.format("InstantiationService::init key: %s, onBoot: %s", wakeKey, onBoot));
+
+        InstantiationEntry entry = entries.get(wakeKey);
 		if (entry == null) {
 			entry = load(wakeKey);
 			entries.put(wakeKey, entry);
@@ -329,5 +371,91 @@ public class InstantiationService implements Capability {
 	@Override
 	public ObjectNode getParams() {
 		return myParams;
+	}
+
+	class DeferredBoot extends Thread {
+		Set<String> exclude = null;
+
+		@Override
+		public void run() {
+			boot();
+		}
+
+		void boot() {
+
+			if (entries == null) {
+				System.out.println("No agents to boot!");
+				return;
+			}
+
+			int count = 0;
+			int skipped = 0;
+			int total = entries.size();
+
+			Set<String> entriesKeys = new HashSet<>(entries.keySet());
+			Set<String> secondKeys = new HashSet<>();
+
+			LOG.info("----------------------------------");
+			LOG.info(String.format("Deferred boot: booting %s agents (delaying MessageAgent and NotificationAgent for second boot round)", entriesKeys.size()));
+			LOG.info("Uptime: " + getUptime());
+			for (String key : entriesKeys) {
+
+				if (exclude != null && exclude.contains(key)) {
+					skipped++;
+					continue;
+				}
+
+				if (key == null || key.contains("{")) {
+					System.err.println(String.format("Not booting agent with suspicious id: %s", key));
+					skipped++;
+					continue;
+				}
+
+				if (key.startsWith("notificationAgent_") || key.startsWith("messageAgent_")) {
+					secondKeys.add(key);
+					continue;
+				}
+
+				Object res = InstantiationService.this.boot_key(key, true);
+				if (res != null) {
+					count++;
+				} else {
+					skipped++;
+				}
+
+				if (count % 100 == 0) {
+					System.out.println(String.format("Booted %s of %s agents", count, total));
+					LOG.info("Uptime: " + getUptime());
+				}
+			}
+
+			LOG.info("----------------------------------");
+			LOG.info("");
+			LOG.info(String.format("Deferred boot: done with first round. Booted %s agents", count));
+			LOG.info("Uptime: " + getUptime());
+			LOG.info(String.format("Deferred boot: starting round 2 (MessageAgent and NotificationAgent). Booting %s agents", secondKeys.size()));
+			LOG.info("");
+
+			for (String key : secondKeys) {
+
+				Object res = InstantiationService.this.init(key, true);
+				if (res != null) {
+					count++;
+				}
+
+				if (count % 100 == 0) {
+					System.out.println(String.format("Booted %s of %s agents", count, total));
+				}
+			}
+
+			LOG.info("----------------------------------");
+			LOG.info("");
+			LOG.info(String.format("Deferred boot: done with round 2. Total booted %s agents", count));
+			LOG.info("Uptime: " + getUptime());
+		}
+
+		long getUptime() {
+			return getRuntimeMXBean().getUptime();
+		}
 	}
 }
