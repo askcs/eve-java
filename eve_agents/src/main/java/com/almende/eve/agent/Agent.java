@@ -397,6 +397,11 @@ public class Agent extends AgentCore implements AgentInterface {
 	 */
 	@Access(AccessType.UNAVAILABLE)
 	protected String schedule(final JSONRequest request, final int delay) {
+		Scheduler scheduler = getScheduler();
+		if (scheduler == null) {
+			System.err.println("Agent " + getId() + " has no scheduler");
+			return null;
+		}
 		return schedule(request, getScheduler().nowDateTime().plus(delay));
 	}
 
