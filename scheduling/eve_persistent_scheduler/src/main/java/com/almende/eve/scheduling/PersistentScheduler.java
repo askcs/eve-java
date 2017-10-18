@@ -5,6 +5,8 @@
 package com.almende.eve.scheduling;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -62,7 +64,9 @@ public class PersistentScheduler extends SimpleScheduler {
 			LOG.warning("Parameter 'state' is required, falling back to SimpleScheduler.");
 		} else {
 			state = new StateBuilder().withConfig(stateConfig).build();
-			for (final String key : state.keySet()) {
+			List<String> keys = new ArrayList<>(state.keySet());
+			for (int i=keys.size()-1;i>=0;i--) {
+				String key = keys.get(i);
 				final TaskEntry entry = state.get(key, TaskEntry.class);
 				run(entry);
 			}
