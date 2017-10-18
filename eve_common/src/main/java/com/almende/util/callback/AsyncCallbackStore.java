@@ -159,6 +159,9 @@ public class AsyncCallbackStore<T> {
 	 */
 	public void put(final Object id, final String description,
 			final AsyncCallback<T> callback) {
+
+		System.out.println(String.format("AsyncCallbackStore::put id: %s, description: %s", id, description));
+
 		startScanner();
 		if (store.containsKey(id)) {
 			throw new IllegalStateException("Callback with id '" + id
