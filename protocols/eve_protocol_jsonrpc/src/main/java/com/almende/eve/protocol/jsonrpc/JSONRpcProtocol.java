@@ -221,8 +221,12 @@ public class JSONRpcProtocol implements RpcBasedProtocol {
 		};
 
 		if (callbacks != null) {
-			callbacks.put(((JSONMessage) request).getId(),
-					"Outbound message callback.", responseCallback);
+			String description = "Outbound msg callback. " + request.getMethod() + " " + request.getParams();
+			if (description.length() > 255) {
+				description = description.substring(0, 255) + "...";
+			}
+
+			callbacks.put(((JSONMessage) request).getId(), description, responseCallback);
 		}
 	}
 
