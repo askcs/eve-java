@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.mongodb.WriteConcern;
 import org.jongo.MongoCollection;
 import org.jongo.marshall.jackson.oid.Id;
 
@@ -416,23 +417,38 @@ public class MongoState extends AbstractState<JsonNode> implements State {
 		final Long now = System.nanoTime();
 		propertiesJson = getPropertiesJSON();
 		final MongoCollection collection = provider.getInstance();
+
 		/* write to database */
-		final WriteResult result = (force) ? collection.update("{_id: #}",
-				getId()).with("{$set: {properties: #, timestamp: #}}",
-				propertiesJson, now) : collection.update(
-				"{_id: #, timestamp: #}", getId(), timestamp).with(
-				"{$set: {properties: #, timestamp: #}}", propertiesJson, now);
+		final WriteResult result;
+		if (force) {
+			result = collection
+					.withWriteConcern(WriteConcern.ACKNOWLEDGED) // Wait until write is done on the primary db, don't wait for replica dbs
+					.update("{_id: #}", getId())
+					.with("{$set: {properties: #, timestamp: #}}", propertiesJson, now);
+		} else {
+			result = collection
+					.withWriteConcern(WriteConcern.ACKNOWLEDGED) // Wait until write is done on the primary db, don't wait for replica dbs
+					.update("{_id: #, timestamp: #}", getId(), timestamp)
+					.with("{$set: {properties: #, timestamp: #}}", propertiesJson, now);
+		}
+
 		/* check results */
-		final Boolean updatedExisting = (Boolean) result
-				.getField("updatedExisting");
-		if (result.getN() == 0 && result.getError() == null) {
+		if (result.getN() == 0) {
+			// Looks like no document got updated
 			throw new UpdateConflictException(timestamp);
 		} else if (result.getN() != 1) {
-			throw new MongoException(result.getError() + " <--- "
-					+ propertiesJson);
+			throw new MongoException("Error caused by this propertiesJson: " + propertiesJson);
 		}
+//		final Boolean updatedExisting = (Boolean) result
+//				.getField("updatedExisting");
+//		if (result.getN() == 0 && result.getError() == null) {
+//			throw new UpdateConflictException(timestamp);
+//		} else if (result.getN() != 1) {
+//			throw new MongoException(result.getError() + " <--- "
+//					+ propertiesJson);
+//		}
 		timestamp = now;
-		return updatedExisting;
+		return result.isUpdateOfExisting();
 	}
 
 	@Override

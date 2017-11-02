@@ -111,11 +111,11 @@ public class MongoStateBuilder extends AbstractCapabilityBuilder<MongoState> {
 	 *             the unknown host exception
 	 */
 	public static MongoClient getClientInstance(final ArrayNode hosts,
-			final List<MongoCredential> credentials, String hostKey)
+			List<MongoCredential> credentials, String hostKey)
 			throws UnknownHostException {
 
-		hostKey = hostKey != null ? hostKey : ""; // update it to empty (default
-													// type)
+		hostKey = hostKey != null ? hostKey : ""; // update it to empty (default type)
+		credentials = credentials != null ? credentials : new ArrayList<MongoCredential>(0);
 		if (clientMap == null || clientMap.get(hostKey) == null) {
 
 			clientMap = clientMap != null ? clientMap
